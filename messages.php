@@ -419,489 +419,230 @@ Keep the key if you need to decrypt the message later.
 
 <script>
 
-const receiver = <?= $selected ?>;
+const receiver = <?php echo (int)$selected; ?>;
 
-
-/*
-|--------------------------------------------------------------------------
-| ASCII ENCRYPTION
-|--------------------------------------------------------------------------
-*/
-
-function encryptMessage(text, key)
-{
+function encryptMessage(text, key) {
     let result = "";
-
     const min = 32;
     const range = 95;
 
     for (let i = 0; i < text.length; i++) {
-
-        let ascii = text.charCodeAt(i);
-
+        const ascii = text.charCodeAt(i);
         if (ascii >= 32 && ascii <= 126) {
-
-            let newAscii =
-                ((ascii - min + key) % range) + min;
-
-            result += String.fromCharCode(newAscii);
-
+            result += String.fromCharCode(((ascii - min + key) % range) + min);
         } else {
-
             result += text[i];
-
         }
     }
-
     return result;
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| ASCII DECRYPTION
-|--------------------------------------------------------------------------
-*/
-
-function decryptMessage(text, key)
-{
+function decryptMessage(text, key) {
     let result = "";
-
     const min = 32;
     const range = 95;
 
     for (let i = 0; i < text.length; i++) {
-
-        let ascii = text.charCodeAt(i);
-
+        const ascii = text.charCodeAt(i);
         if (ascii >= 32 && ascii <= 126) {
-
-            let newAscii =
-                ((ascii - min - key + range) % range) + min;
-
-            result += String.fromCharCode(newAscii);
-
+            result += String.fromCharCode(((ascii - min - key + range) % range) + min);
         } else {
-
             result += text[i];
-
         }
     }
-
     return result;
 }
 
+async function sendMessage() {
+    const input = document.getElementById("message");
+    if (!input) return;
 
-/*
-|--------------------------------------------------------------------------
-| NORMAL SEND
-|--------------------------------------------------------------------------
-*/
-
-async function sendMessage()
-{
-
-    const input =
-        document.getElementById("message");
-
-    const message =
-        input.value.trim();
-
+    const message = input.value.trim();
     if (!message) {
+        alert("Please enter a message.");
         return;
     }
 
-    const body =
-        new URLSearchParams();
+    try {
+        const body = new URLSearchParams();
+        body.set("receiver", receiver);
+        body.set("message", message);
 
-    body.set("receiver", receiver);
-    body.set("message", message);
+        const response = await fetch("message_api.php?action=send", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body.toString()
+        });
 
-    const response =
-        await fetch(
-            "message_api.php?action=send",
-            {
-                method: "POST",
+        const text = await response.text();
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            console.error("message_api.php returned:", text);
+            alert("Server error. Check message_api.php.");
+            return;
+        }
 
-                headers: {
-                    "Content-Type":
-                    "application/x-www-form-urlencoded"
-                },
-
-                body: body
-            }
-        );
-
-    const data =
-        await response.json();
-
-    if (data.ok) {
+        if (!data.ok) {
+            alert(data.error || "Message could not be sent.");
+            return;
+        }
 
         input.value = "";
-
-        loadMessages();
-
-    } else {
-
-        alert(data.error);
-
+        await loadMessages();
+    } catch (e) {
+        console.error(e);
+        alert("Could not connect to message server.");
     }
 }
 
+async function encryptAndSend() {
+    const input = document.getElementById("message");
+    if (!input) return;
 
-/*
-|--------------------------------------------------------------------------
-| ENCRYPT + SEND
-|--------------------------------------------------------------------------
-*/
-
-async function encryptAndSend()
-{
-
-    const input =
-        document.getElementById("message");
-
-    const plainText =
-        input.value.trim();
-
+    const plainText = input.value.trim();
     if (!plainText) {
+        alert("Please enter a message.");
         return;
     }
 
+    const key = Math.floor(Math.random() * 94) + 1;
+    const encrypted = encryptMessage(plainText, key);
+    const storedMessage = "[[PRIVATE:" + key + "]]" + encrypted;
 
-    /*
-     * Generate random key.
-     *
-     * 1 - 94
-     */
+    try {
+        const body = new URLSearchParams();
+        body.set("receiver", receiver);
+        body.set("message", storedMessage);
 
-    const key =
-        Math.floor(Math.random() * 94) + 1;
+        const response = await fetch("message_api.php?action=send", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body.toString()
+        });
 
+        const text = await response.text();
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            console.error("message_api.php returned:", text);
+            alert("Server error. Check message_api.php.");
+            return;
+        }
 
-    /*
-     * Encrypt message
-     */
-
-    const encrypted =
-        encryptMessage(
-            plainText,
-            key
-        );
-
-
-    /*
-     * Send encrypted message
-     *
-     * We attach the key using a simple
-     * metadata format.
-     */
-
-    const storedMessage =
-        "[[PRIVATE:" +
-        key +
-        "]]" +
-        encrypted;
-
-
-    const body =
-        new URLSearchParams();
-
-    body.set(
-        "receiver",
-        receiver
-    );
-
-    body.set(
-        "message",
-        storedMessage
-    );
-
-
-    const response =
-        await fetch(
-            "message_api.php?action=send",
-            {
-                method: "POST",
-
-                headers: {
-                    "Content-Type":
-                    "application/x-www-form-urlencoded"
-                },
-
-                body: body
-            }
-        );
-
-
-    const data =
-        await response.json();
-
-
-    if (data.ok) {
+        if (!data.ok) {
+            alert(data.error || "Encrypted message could not be sent.");
+            return;
+        }
 
         input.value = "";
-
-        alert(
-            "Message encrypted.\n\n" +
-            "Encryption key: " +
-            key +
-            "\n\n" +
-            "Share this key with the recipient."
-        );
-
-        loadMessages();
-
-    } else {
-
-        alert(data.error);
-
+        alert("Message encrypted.\n\nEncryption key: " + key + "\n\nKeep this key to decrypt the message.");
+        await loadMessages();
+    } catch (e) {
+        console.error(e);
+        alert("Could not connect to message server.");
     }
 }
 
+async function loadMessages() {
+    if (!receiver) return;
 
-/*
-|--------------------------------------------------------------------------
-| LOAD MESSAGES
-|--------------------------------------------------------------------------
-*/
+    try {
+        const response = await fetch("message_api.php?action=list&user=" + encodeURIComponent(receiver));
+        const text = await response.text();
+        let data;
 
-async function loadMessages()
-{
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            console.error("message_api.php returned:", text);
+            return;
+        }
 
-    if (!receiver) {
-        return;
-    }
+        if (!data.ok) {
+            console.error(data.error || "Could not load messages.");
+            return;
+        }
 
-    const response =
-        await fetch(
-            "message_api.php?action=list&user=" +
-            receiver
-        );
+        const box = document.getElementById("messages");
+        if (!box) return;
+        box.innerHTML = "";
 
+        data.messages.forEach(function(message) {
+            const div = document.createElement("div");
+            div.className = "message " + (message.mine ? "mine" : "theirs");
 
-    const data =
-        await response.json();
+            if (typeof message.message === "string" && message.message.indexOf("[[PRIVATE:") === 0) {
+                const end = message.message.indexOf("]]" );
 
+                if (end !== -1) {
+                    const key = parseInt(message.message.substring(10, end), 10);
+                    const encrypted = message.message.substring(end + 2);
 
-    if (!data.ok) {
-        return;
-    }
+                    div.dataset.encrypted = encrypted;
+                    div.dataset.key = key;
 
-
-    const box =
-        document.getElementById("messages");
-
-    box.innerHTML = "";
-
-
-    data.messages.forEach(
-        function(message)
-        {
-
-            const div =
-                document.createElement("div");
-
-
-            div.className =
-                "message " +
-                (
-                    message.mine
-                    ? "mine"
-                    : "theirs"
-                );
-
-
-            /*
-             * Check for encrypted message.
-             */
-
-            if (
-                message.message.startsWith(
-                    "[[PRIVATE:"
-                )
-            {
-
-                const end =
-                    message.message.indexOf(
-                        "]]"
-                    );
-
-
-                const key =
-                    parseInt(
-                        message.message.substring(
-                            10,
-                            end
-                        )
-                    );
-
-
-                const encrypted =
-                    message.message.substring(
-                        end + 2
-                    );
-
-
-                div.dataset.encrypted =
-                    encrypted;
-
-                div.dataset.key =
-                    key;
-
-
-                div.innerHTML =
-                    "<b>🔐 Encrypted message</b>" +
-                    "<br><br>" +
-                    escapeHtml(encrypted) +
-                    "<div class='message-key'>" +
-                    "Key required to decrypt" +
-                    "</div>";
-
-
+                    div.innerHTML =
+                        "<b>🔐 Encrypted message</b>" +
+                        "<br><br>" +
+                        escapeHtml(encrypted) +
+                        "<div class='message-key'>Key required to decrypt</div>";
+                } else {
+                    div.textContent = message.message;
+                }
+            } else {
+                div.textContent = message.message;
             }
-            else
-            {
-
-                div.textContent =
-                    message.message;
-
-            }
-
 
             box.appendChild(div);
+        });
 
-        }
-    );
-
-
-    box.scrollTop =
-        box.scrollHeight;
+        box.scrollTop = box.scrollHeight;
+    } catch (e) {
+        console.error("Could not load messages:", e);
+    }
 }
 
+function decryptSelected() {
+    const encryptedMessages = document.querySelectorAll(".message[data-encrypted]");
 
-/*
-|--------------------------------------------------------------------------
-| DECRYPT SELECTED MESSAGE
-|--------------------------------------------------------------------------
-*/
-
-function decryptSelected()
-{
-
-    const encryptedMessages =
-        document.querySelectorAll(
-            ".message[data-encrypted]"
-        );
-
-
-    if (encryptedMessages.length === 0)
-    {
-
-        alert(
-            "There are no encrypted messages."
-        );
-
+    if (encryptedMessages.length === 0) {
+        alert("There are no encrypted messages.");
         return;
     }
 
+    const div = encryptedMessages[encryptedMessages.length - 1];
+    const encrypted = div.dataset.encrypted;
+    const actualKey = parseInt(div.dataset.key, 10);
+    const enteredKey = prompt("Enter the encryption key:");
 
-    /*
-     * Decrypt the most recent encrypted message.
-     */
+    if (enteredKey === null) return;
 
-    const div =
-        encryptedMessages[
-            encryptedMessages.length - 1
-        ];
+    const key = parseInt(enteredKey, 10);
 
-
-    const encrypted =
-        div.dataset.encrypted;
-
-
-    const actualKey =
-        parseInt(
-            div.dataset.key
-        );
-
-
-    /*
-     * Ask user for key.
-     */
-
-    const enteredKey =
-        prompt(
-            "Enter the encryption key:"
-        );
-
-
-    if (enteredKey === null) {
+    if (key !== actualKey) {
+        alert("Wrong encryption key.");
         return;
     }
 
-
-    const key =
-        parseInt(enteredKey);
-
-
-    if (key !== actualKey)
-    {
-
-        alert(
-            "Wrong encryption key."
-        );
-
-        return;
-    }
-
-
-    const decrypted =
-        decryptMessage(
-            encrypted,
-            key
-        );
-
+    const decrypted = decryptMessage(encrypted, key);
 
     div.innerHTML =
         "<b>🔓 Decrypted message</b>" +
         "<br><br>" +
         escapeHtml(decrypted);
-
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| HTML ESCAPE
-|--------------------------------------------------------------------------
-*/
-
-function escapeHtml(text)
-{
-
-    const div =
-        document.createElement("div");
-
-    div.textContent =
-        text;
-
+function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
     return div.innerHTML;
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| AUTO REFRESH
-|--------------------------------------------------------------------------
-*/
-
 loadMessages();
-
-setInterval(
-    loadMessages,
-    2000
-);
+setInterval(loadMessages, 2000);
 
 </script>
 
