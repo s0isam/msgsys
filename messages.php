@@ -10,132 +10,907 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
 $me = (int)$_SESSION["id"];
 $selected = isset($_GET["user"]) ? (int)$_GET["user"] : 0;
 
-$stmt = mysqli_prepare($conn, "SELECT id, username FROM users WHERE id <> ? ORDER BY username");
+/*
+|--------------------------------------------------------------------------
+| ASCII SHIFT ENCRYPTION
+|--------------------------------------------------------------------------
+| Printable ASCII characters: 32-126
+| Random key: 1-94
+|
+| Example:
+| a + 5 = f
+| z + 5 = {
+|
+| Wrap-around is used so characters stay printable.
+|--------------------------------------------------------------------------
+*/
+
+function encryptMessage($text, $key)
+{
+    $result = "";
+    $min = 32;
+    $range = 95;
+
+    for ($i = 0; $i < strlen($text); $i++) {
+
+        $ascii = ord($text[$i]);
+
+        if ($ascii >= 32 && $ascii <= 126) {
+
+            $newAscii =
+                (($ascii - $min + $key) % $range) + $min;
+
+            $result .= chr($newAscii);
+
+        } else {
+
+            $result .= $text[$i];
+
+        }
+    }
+
+    return $result;
+}
+
+function decryptMessage($text, $key)
+{
+    $result = "";
+    $min = 32;
+    $range = 95;
+
+    for ($i = 0; $i < strlen($text); $i++) {
+
+        $ascii = ord($text[$i]);
+
+        if ($ascii >= 32 && $ascii <= 126) {
+
+            $newAscii =
+                (($ascii - $min - $key + $range) % $range) + $min;
+
+            $result .= chr($newAscii);
+
+        } else {
+
+            $result .= $text[$i];
+
+        }
+    }
+
+    return $result;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| GET USERS
+|--------------------------------------------------------------------------
+*/
+
+$stmt = mysqli_prepare(
+    $conn,
+    "SELECT id, username
+     FROM users
+     WHERE id <> ?
+     ORDER BY username"
+);
+
 mysqli_stmt_bind_param($stmt, "i", $me);
 mysqli_stmt_execute($stmt);
+
 $users = mysqli_stmt_get_result($stmt);
 
+
+/*
+|--------------------------------------------------------------------------
+| SELECTED USER
+|--------------------------------------------------------------------------
+*/
+
 $selected_name = "";
+
 if ($selected > 0) {
-    $stmt2 = mysqli_prepare($conn, "SELECT username FROM users WHERE id = ? AND id <> ?");
-    mysqli_stmt_bind_param($stmt2, "ii", $selected, $me);
+
+    $stmt2 = mysqli_prepare(
+        $conn,
+        "SELECT username
+         FROM users
+         WHERE id = ?
+         AND id <> ?"
+    );
+
+    mysqli_stmt_bind_param(
+        $stmt2,
+        "ii",
+        $selected,
+        $me
+    );
+
     mysqli_stmt_execute($stmt2);
-    $r = mysqli_stmt_get_result($stmt2);
-    if ($row = mysqli_fetch_assoc($r)) $selected_name = $row["username"];
+
+    $result = mysqli_stmt_get_result($stmt2);
+
+    if ($row = mysqli_fetch_assoc($result)) {
+        $selected_name = $row["username"];
+    }
 }
+
 ?>
-<!doctype html>
+<!DOCTYPE html>
+
 <html>
+
 <head>
-<meta charset="utf-8">
-<title>Messages</title>
+
+<meta charset="UTF-8">
+
+<title>Private Messages</title>
+
 <style>
-body{font-family:Arial;margin:0;background:#f4f4f4}
-.wrap{display:flex;height:100vh}
-.users{width:260px;background:#222;color:#fff;padding:20px;box-sizing:border-box}
-.users a{display:block;color:#fff;text-decoration:none;padding:12px;border-radius:6px;margin:5px 0}
-.users a:hover,.users a.active{background:#444}
-.chat{flex:1;display:flex;flex-direction:column}
-.top{background:#fff;padding:18px;border-bottom:1px solid #ddd}
-.box{flex:1;padding:20px;overflow:auto}
-.msg{max-width:65%;padding:10px 14px;margin:8px 0;border-radius:12px;white-space:pre-wrap}
-.mine{margin-left:auto;background:#d8f8d8}
-.theirs{background:#fff}
-form{display:flex;gap:8px;padding:15px;background:#fff;border-top:1px solid #ddd}
-textarea{flex:1;resize:none;padding:10px}
-button{padding:10px 15px;cursor:pointer}
-.note{padding:20px;color:#666}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f1f1f1;
+}
+
+.container {
+    display: flex;
+    height: 100vh;
+}
+
+/* USERS */
+
+.users {
+    width: 260px;
+    background: #202020;
+    color: white;
+    padding: 20px;
+}
+
+.users h2 {
+    margin-top: 0;
+}
+
+.user {
+    display: block;
+    color: white;
+    text-decoration: none;
+    padding: 12px;
+    margin: 5px 0;
+    border-radius: 7px;
+}
+
+.user:hover {
+    background: #333;
+}
+
+.user.active {
+    background: #444;
+}
+
+/* CHAT */
+
+.chat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.header {
+    background: white;
+    padding: 18px;
+    border-bottom: 1px solid #ddd;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.message {
+    max-width: 65%;
+    padding: 12px 15px;
+    margin: 10px 0;
+    border-radius: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.mine {
+    margin-left: auto;
+    background: #d8f8d8;
+}
+
+.theirs {
+    background: white;
+}
+
+.message-key {
+    font-size: 11px;
+    color: #777;
+    margin-top: 5px;
+}
+
+/* SEND */
+
+.send-area {
+    background: white;
+    border-top: 1px solid #ddd;
+    padding: 15px;
+}
+
+textarea {
+    width: 100%;
+    resize: none;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+}
+
+.buttons {
+    margin-top: 10px;
+}
+
+button {
+    padding: 10px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.send {
+    background: #222;
+    color: white;
+}
+
+.privacy {
+    background: #555;
+    color: white;
+}
+
+.notice {
+    background: #fff3cd;
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.empty {
+    color: #777;
+    text-align: center;
+    margin-top: 100px;
+}
+
 </style>
+
 </head>
+
 <body>
-<div class="wrap">
-  <aside class="users">
-    <h3>Users</h3>
-    <?php while ($u = mysqli_fetch_assoc($users)): ?>
-      <a class="<?= $selected === (int)$u["id"] ? "active" : "" ?>"
-         href="messages.php?user=<?= (int)$u["id"] ?>">
-        <?= htmlspecialchars($u["username"]) ?>
-      </a>
-    <?php endwhile; ?>
-    <br>
-    <a href="dashboard.php">← Dashboard</a>
-  </aside>
 
-  <main class="chat">
-    <div class="top">
-      <strong><?= $selected_name ? "Chat with " . htmlspecialchars($selected_name) : "Messages" ?></strong>
-    </div>
+<div class="container">
 
-    <div id="messages" class="box">
-      <?php if (!$selected_name): ?>
-        <div class="note">Select a user to start messaging.</div>
-      <?php endif; ?>
-    </div>
+<!-- USER LIST -->
 
-    <?php if ($selected_name): ?>
-    <form id="sendForm">
-      <textarea id="message" rows="2" placeholder="Type a message..." required></textarea>
-      <button type="submit">Send</button>
-    </form>
-    <?php endif; ?>
-  </main>
+<div class="users">
+
+<h2>Users</h2>
+
+<?php while ($user = mysqli_fetch_assoc($users)): ?>
+
+<a
+class="user <?= $selected === (int)$user["id"] ? "active" : "" ?>"
+href="messages.php?user=<?= (int)$user["id"] ?>"
+>
+
+<?= htmlspecialchars($user["username"]) ?>
+
+</a>
+
+<?php endwhile; ?>
+
+<br>
+
+<a class="user" href="dashboard.php">
+← Dashboard
+</a>
+
 </div>
 
+
+<!-- CHAT -->
+
+<div class="chat">
+
+<div class="header">
+
 <?php if ($selected_name): ?>
+
+Chat with <?= htmlspecialchars($selected_name) ?>
+
+<?php else: ?>
+
+Private Messages
+
+<?php endif; ?>
+
+</div>
+
+
+<div id="messages" class="messages">
+
+<?php if (!$selected_name): ?>
+
+<div class="empty">
+
+Select a user to start messaging.
+
+</div>
+
+<?php endif; ?>
+
+</div>
+
+
+<?php if ($selected_name): ?>
+
+<div class="send-area">
+
+<textarea
+id="message"
+rows="3"
+placeholder="Write your message..."
+></textarea>
+
+
+<div class="buttons">
+
+<button
+class="send"
+onclick="sendMessage()"
+>
+Send
+</button>
+
+
+<button
+class="privacy"
+onclick="encryptAndSend()"
+>
+🔐 Encrypt & Send
+</button>
+
+
+<button
+class="privacy"
+onclick="decryptSelected()"
+>
+🔓 Decrypt
+</button>
+
+</div>
+
+
+<div class="notice">
+
+<b>Privacy Mode:</b>
+
+Encrypt & Send generates a random ASCII shift key for the message.
+
+Keep the key if you need to decrypt the message later.
+
+</div>
+
+</div>
+
+<?php endif; ?>
+
+</div>
+
+</div>
+
+
 <script>
+
 const receiver = <?= $selected ?>;
-const box = document.getElementById("messages");
 
-function escapeHtml(s) {
-  const d = document.createElement("div");
-  d.textContent = s;
-  return d.innerHTML;
+
+/*
+|--------------------------------------------------------------------------
+| ASCII ENCRYPTION
+|--------------------------------------------------------------------------
+*/
+
+function encryptMessage(text, key)
+{
+    let result = "";
+
+    const min = 32;
+    const range = 95;
+
+    for (let i = 0; i < text.length; i++) {
+
+        let ascii = text.charCodeAt(i);
+
+        if (ascii >= 32 && ascii <= 126) {
+
+            let newAscii =
+                ((ascii - min + key) % range) + min;
+
+            result += String.fromCharCode(newAscii);
+
+        } else {
+
+            result += text[i];
+
+        }
+    }
+
+    return result;
 }
 
-async function loadMessages() {
-  const r = await fetch("message_api.php?action=list&user=" + receiver);
-  const data = await r.json();
-  if (!data.ok) return;
 
-  box.innerHTML = "";
-  for (const m of data.messages) {
-    const div = document.createElement("div");
-    div.className = "msg " + (m.mine ? "mine" : "theirs");
-    div.innerHTML = escapeHtml(m.message);
-    box.appendChild(div);
-  }
-  box.scrollTop = box.scrollHeight;
+/*
+|--------------------------------------------------------------------------
+| ASCII DECRYPTION
+|--------------------------------------------------------------------------
+*/
+
+function decryptMessage(text, key)
+{
+    let result = "";
+
+    const min = 32;
+    const range = 95;
+
+    for (let i = 0; i < text.length; i++) {
+
+        let ascii = text.charCodeAt(i);
+
+        if (ascii >= 32 && ascii <= 126) {
+
+            let newAscii =
+                ((ascii - min - key + range) % range) + min;
+
+            result += String.fromCharCode(newAscii);
+
+        } else {
+
+            result += text[i];
+
+        }
+    }
+
+    return result;
 }
 
-document.getElementById("sendForm").addEventListener("submit", async e => {
-  e.preventDefault();
-  const input = document.getElementById("message");
-  const message = input.value.trim();
-  if (!message) return;
 
-  const body = new URLSearchParams();
-  body.set("receiver", receiver);
-  body.set("message", message);
+/*
+|--------------------------------------------------------------------------
+| NORMAL SEND
+|--------------------------------------------------------------------------
+*/
 
-  const r = await fetch("message_api.php?action=send", {
-    method: "POST",
-    headers: {"Content-Type":"application/x-www-form-urlencoded"},
-    body
-  });
-  const data = await r.json();
+async function sendMessage()
+{
 
-  if (data.ok) {
-    input.value = "";
-    loadMessages();
-  } else {
-    alert(data.error || "Could not send message.");
-  }
-});
+    const input =
+        document.getElementById("message");
+
+    const message =
+        input.value.trim();
+
+    if (!message) {
+        return;
+    }
+
+    const body =
+        new URLSearchParams();
+
+    body.set("receiver", receiver);
+    body.set("message", message);
+
+    const response =
+        await fetch(
+            "message_api.php?action=send",
+            {
+                method: "POST",
+
+                headers: {
+                    "Content-Type":
+                    "application/x-www-form-urlencoded"
+                },
+
+                body: body
+            }
+        );
+
+    const data =
+        await response.json();
+
+    if (data.ok) {
+
+        input.value = "";
+
+        loadMessages();
+
+    } else {
+
+        alert(data.error);
+
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| ENCRYPT + SEND
+|--------------------------------------------------------------------------
+*/
+
+async function encryptAndSend()
+{
+
+    const input =
+        document.getElementById("message");
+
+    const plainText =
+        input.value.trim();
+
+    if (!plainText) {
+        return;
+    }
+
+
+    /*
+     * Generate random key.
+     *
+     * 1 - 94
+     */
+
+    const key =
+        Math.floor(Math.random() * 94) + 1;
+
+
+    /*
+     * Encrypt message
+     */
+
+    const encrypted =
+        encryptMessage(
+            plainText,
+            key
+        );
+
+
+    /*
+     * Send encrypted message
+     *
+     * We attach the key using a simple
+     * metadata format.
+     */
+
+    const storedMessage =
+        "[[PRIVATE:" +
+        key +
+        "]]" +
+        encrypted;
+
+
+    const body =
+        new URLSearchParams();
+
+    body.set(
+        "receiver",
+        receiver
+    );
+
+    body.set(
+        "message",
+        storedMessage
+    );
+
+
+    const response =
+        await fetch(
+            "message_api.php?action=send",
+            {
+                method: "POST",
+
+                headers: {
+                    "Content-Type":
+                    "application/x-www-form-urlencoded"
+                },
+
+                body: body
+            }
+        );
+
+
+    const data =
+        await response.json();
+
+
+    if (data.ok) {
+
+        input.value = "";
+
+        alert(
+            "Message encrypted.\n\n" +
+            "Encryption key: " +
+            key +
+            "\n\n" +
+            "Share this key with the recipient."
+        );
+
+        loadMessages();
+
+    } else {
+
+        alert(data.error);
+
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| LOAD MESSAGES
+|--------------------------------------------------------------------------
+*/
+
+async function loadMessages()
+{
+
+    if (!receiver) {
+        return;
+    }
+
+    const response =
+        await fetch(
+            "message_api.php?action=list&user=" +
+            receiver
+        );
+
+
+    const data =
+        await response.json();
+
+
+    if (!data.ok) {
+        return;
+    }
+
+
+    const box =
+        document.getElementById("messages");
+
+    box.innerHTML = "";
+
+
+    data.messages.forEach(
+        function(message)
+        {
+
+            const div =
+                document.createElement("div");
+
+
+            div.className =
+                "message " +
+                (
+                    message.mine
+                    ? "mine"
+                    : "theirs"
+                );
+
+
+            /*
+             * Check for encrypted message.
+             */
+
+            if (
+                message.message.startsWith(
+                    "[[PRIVATE:"
+                )
+            {
+
+                const end =
+                    message.message.indexOf(
+                        "]]"
+                    );
+
+
+                const key =
+                    parseInt(
+                        message.message.substring(
+                            10,
+                            end
+                        )
+                    );
+
+
+                const encrypted =
+                    message.message.substring(
+                        end + 2
+                    );
+
+
+                div.dataset.encrypted =
+                    encrypted;
+
+                div.dataset.key =
+                    key;
+
+
+                div.innerHTML =
+                    "<b>🔐 Encrypted message</b>" +
+                    "<br><br>" +
+                    escapeHtml(encrypted) +
+                    "<div class='message-key'>" +
+                    "Key required to decrypt" +
+                    "</div>";
+
+
+            }
+            else
+            {
+
+                div.textContent =
+                    message.message;
+
+            }
+
+
+            box.appendChild(div);
+
+        }
+    );
+
+
+    box.scrollTop =
+        box.scrollHeight;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| DECRYPT SELECTED MESSAGE
+|--------------------------------------------------------------------------
+*/
+
+function decryptSelected()
+{
+
+    const encryptedMessages =
+        document.querySelectorAll(
+            ".message[data-encrypted]"
+        );
+
+
+    if (encryptedMessages.length === 0)
+    {
+
+        alert(
+            "There are no encrypted messages."
+        );
+
+        return;
+    }
+
+
+    /*
+     * Decrypt the most recent encrypted message.
+     */
+
+    const div =
+        encryptedMessages[
+            encryptedMessages.length - 1
+        ];
+
+
+    const encrypted =
+        div.dataset.encrypted;
+
+
+    const actualKey =
+        parseInt(
+            div.dataset.key
+        );
+
+
+    /*
+     * Ask user for key.
+     */
+
+    const enteredKey =
+        prompt(
+            "Enter the encryption key:"
+        );
+
+
+    if (enteredKey === null) {
+        return;
+    }
+
+
+    const key =
+        parseInt(enteredKey);
+
+
+    if (key !== actualKey)
+    {
+
+        alert(
+            "Wrong encryption key."
+        );
+
+        return;
+    }
+
+
+    const decrypted =
+        decryptMessage(
+            encrypted,
+            key
+        );
+
+
+    div.innerHTML =
+        "<b>🔓 Decrypted message</b>" +
+        "<br><br>" +
+        escapeHtml(decrypted);
+
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| HTML ESCAPE
+|--------------------------------------------------------------------------
+*/
+
+function escapeHtml(text)
+{
+
+    const div =
+        document.createElement("div");
+
+    div.textContent =
+        text;
+
+    return div.innerHTML;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| AUTO REFRESH
+|--------------------------------------------------------------------------
+*/
 
 loadMessages();
-setInterval(loadMessages, 2000);
+
+setInterval(
+    loadMessages,
+    2000
+);
+
 </script>
-<?php endif; ?>
+
 </body>
+
 </html>
-<?php mysqli_close($conn); ?>
+
+<?php
+
+mysqli_close($conn);
+
+?>
